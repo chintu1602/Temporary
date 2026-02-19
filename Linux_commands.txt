@@ -1,0 +1,229 @@
+Linux :
+
+- linux is free, open source OS 
+- linux = kernel 
+- linux os = kernel + tools + Libraries + Desktop (optional)
+
+
+Linux
+kernel, shell , hardware layer, utilities
+
+kernel :
+main core component in Linux, it control the activity of other hardware components.
+process in queue
+types:
+1. monolithic kernel 
+--- concurrent process executed simultaneously
+--- all process share same memory locations
+2. micro kernel
+--- user services and kernel services are executed in separate address space
+3. exokernel
+--- it helps to manage hardware resources at application level
+4. hybrid kernel
+---combination of above monolithic and micro kernel
+
+Linux kernel subsystem
+1. Process Scheduler
+2. Memory management unit (MMU)
+3. Virtual File system (VFS)
+4. Networking Subsystem
+5. Process Communication Unit 
+
+
+Shell
+
+1. It can be determined as the interface to the kernel
+2. it hides the internal execution of functions of kernel from the user
+types:
+1. Command line shell
+2. GUI
+
+Hardware Layer
+
+1. Lowest level of operating system track
+2. It plays a vital role in managing all the hardware components
+3. memory management, I/O operations, CPU control, Kernel functions, device drivers
+4.
+
+System Utilities
+1. command line tools that performs various tasks provided by the user
+
+
+
+Commands :
+
+Basic commands: 
+1. pwd (print Working directory)
+
+2. ls --- used to list the files and directories in the current directory
+ls -l (long format that displays detailed information about files and directories)
+ls (hidden files and directories)
+ls -t (most recently-a  modified ones displays first)
+ls  -r (reverse order)
+ls - S (sort the files based on the sizes)
+ls -R (displays files and directories including sub directories)
+
+3. uname --- print system information
+4. cd ---change directory 
+5. clear ---- clear the terminal screen
+6. whoami -- display the current user
+7. history 
+8. free ---- memory related details
+10. ssh-keygen ---- is used to establish a secure ssh connection from your host machine 
+to any remote server. it generate public/private key pair
+11.curl -- curl is a toll which is used to fetch data and post the data over the internet.
+12. apt-get ---- advanced packaging tool and its used of install, update , upgrade and 
+remove the packages
+syntax: apt-get [options] docker.io
+13. du ---- used to check disk usage space
+14. df ---- used to check the available disk space in system
+15. ifconfig --- used to view the information about your network interface
+
+
+Creating files and Directories
+
+1. mkdir --- create directory
+2. mkdir -p /dir1/dir2/dir3 --- placing one directory inside another directory
+3. mkdir apple{1..3}
+4. touch filename -- creates an empty file or update e the time stamp of an existing file
+5. echo 
+
+echo "hello world" > hello.txt
+
+6. cat > filename
+7. touch file1 file2 file3
+
+copying and pasting files and directories
+
+1. cp --- copying and pasting files or directories 
+    cp [option] source destination
+
+i -- interactive mode. prompts before overwriting files
+-r or -R ---recursive mode , it will copy directories and its content
+-u -----copy only when the source file is newer tahn the destination file 
+	or when the destination file is missing
+-p -----preserved file attributes
+-v ---- verbose mode... it shows the progress of files being copied
+-a --- archive mode
+
+rm -rvf ---- for removing files and directories
+
+Renaming/moving files and directories
+
+mv --- similar to cp but it destroys the source file
+	mv [option] source destination
+
+-i ------ interactive mode
+-u ------ move when the source file is newer than the destination file or when the destination file is missing
+-v ------ verbose mode ....it shows the progress of files being moved
+-f ----- force. overwrite destination files without prompting
+
+
+User management 
+
+1. creatin a user :
+sudo useradd [usernam]
+
+2. set password:
+sudo passwd [username]
+
+3. del a user: 
+sudo userdel [username]
+
+4. switch to another user:
+su [username]
+
+5. rename the user
+sudo usermod -l [newname] [oldname]
+
+6. list of user:
+cat /etc/passwd
+cut -d: -f1 /etc/passwd
+
+who
+
+7. (more important)
+
+ -m creates the users home directory 
+ -s /bin/bash ---- specify the default shell
+
+sudo useradd -m -s /bin/bash divi
+
+
+Group management:
+
+
+1. sudo groupadd [groupname]
+2. sudo groupdel [groupname]
+3. sudo usermod -g [groupname] [username]
+4. sudo deluser username groupname
+5.list users in specific group 
+getent group groupname
+
+Linux File system Permission
+
+read
+write 
+execute 
+
+user u
+group g
+other o
+
+1. to check the permission of the directory
+ls -ld directoryname
+
+
+rwx 	rwx		rwx
+user	group	others
+777
+
+Number 	Permission type	              symbol        
+0	No permission			-
+1	execute				-x
+2	write				-w-
+3	execute + write			-wx
+4	read				r-
+5	read + execute			r-x
+6	read + write			rw-
+7	read + write + execute		rwx
+
+
+chmod [permission of user,group,other] [filename]
+sudo chown [owner_name] [file name]
+
+
+vim editor
+	press i to enter insert mode
+	#type content : hello world 
+	#press escape 
+ to save -> press escape -> type :w
+ to save and quit -> press escape -> type :wq
+ quit without saving -> :q!
+ 
+ Nano editor: 
+ - no modes 
+ - just start typing (like notepad)
+ - to save press -> ctrl + o
+ - to exit nano press -> ctrl + x
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

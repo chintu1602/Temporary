@@ -1,0 +1,96 @@
+echo - To print something
+echo $0 -  To print default shell
+cat /etc/shells - To find the all shells available under os
+
+#!/bin/bash - Shebang(To let the interpreter know which shell we are using) - best practice
+vi filename.sh - visual editor(used for creating, editing, and viewing text files directly within the terminal)
+	- To insert something we need to press i
+	- To save and quit press escape and press :wq or :x
+	- To excute this bash filename.sh or ./filename.sh(for this user need to have xwr)
+
+Comments 
+	- #single line comments
+	- <<comm
+	   .....
+	  comm
+
+variables
+	- varname = value
+	- To print use echo "$varname" or "${varname}"
+	- readonly varname = value -> To make variable as constant
+
+Arrays
+	- myArray = ( 1 2 Hello "Hey man" )
+	- To retrieve 1 value from array -> echo "${myArray[0]}"
+	- To retrieve all the values -> echo "${myArray[*]}
+	- To retrieve no.of values in a array -> echo "${#myArray[*]}"
+	- To get range of values -> echo "${myArray[*]:valueFrom:no.of values}"
+	- To add values to an array -> myArray+=( New 10 20 Alex )
+	- To update existing value -> myArray[2] = Ram
+	- To delete a value from an array -> unset myArray[2]
+
+Key-value pair Arrays
+	- To declare -> declare -A myArray
+	- to define -> myArray=( [name]=Paul [city]=Bengaluru [age]=25 )
+	- To retrieve -> echo "${myArray['name']}"
+
+Strings
+	- to get length -> echo "${#myVar}"
+	- to make string upper -> echo "${myVar^^}"
+	- to make string lower -> echo "${myVar,,}"
+	- to replace -> echo "${myVar/str_to_replace/new_val}"
+	- to slice -> echo "${myVar:valueFrom:no.of values}"
+
+user input
+	- syntax: 
+		read -p "Enter your input: " name
+		echo "Welcome $name"
+
+arithmetic operations
+	- Ex: #!/bin/bash
+	      x=10
+	      y=20
+	      let z=$x+$y     | echo "Sum: $(($x+$y))"
+	      echo "Sum: $z"  | echo "Product: $(($x*$y))"
+
+Conditional Statement
+	- Syntax:
+		if [ $marks -gt 40 ];
+		then
+			echo "You are Pass"
+			echo "Congrats"
+		else
+			echo "You are fail"
+		fi
+
+Operators
+	- Equal -> -eq/==
+	- greaterthanequalto -> -ge
+	- lessthanorequalto -> -le
+	- notequal -> -ne/!=
+	- greaterthan -> -gt
+	- lessthan -> -lt
+
+ELIF
+	-syntax:
+		if [ $marks -ge 80 ];
+		then
+			echo "First"
+		elif [ $marks -ge 60 ];
+		then
+			echo "Second"
+		else
+			echo "fail"
+		fi
+
+
+
+		
+
+
+
+
+	
+
+
+
