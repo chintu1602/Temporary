@@ -152,6 +152,320 @@ async def main():
     conn = await asyncpg.connect(
         host="${PG_HOST}", port=${PG_PORT},
         user="${PG_USER}", password="${PG_PASS}",
+        database="postgres",
+        ssl="require"
+    )
+    for db in ("userdb", "productdb", "orderdb"):
+        exists = await conn.fetchval(
+            "SELECT 1 FROM pg_database WHERE datname = \$1", db
+        )
+        if exists:
+            print(f"  [skip] {db} already exists")
+        else:
+            # Must be outside a transaction
+            await conn.execute(f"CREATE DATABASE {db}")
+            print(f"  [created] {db}")
+    await conn.close()
+
+asyncio.run(main())
+PYEOF
+
+ok "Databases ready"
+rm -rf "$TMP_VENV"
+
+# ==============================================================================
+# 5. PER-SERVICE .env FILES
+# ==============================================================================
+step "Writing per-service .env files"
+
+# ── user-service ──────────────────────────────────────────────────────────────
+cat > "$APP_DIR/user-service/.env" <<EOF
+DATABASE_URL=postgresql+asyncpg://${PG_USER}:${PG_PASS_ENCODED}@${PG_HOST}:${PG_PORT}/userdb?ssl=require
+JWT_SECRET=${JWT_SECRET}
+JWT_ALGORITHM=${JWT_ALGORITHM}
+ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES}
+REFRESH_TOKEN_EXPIRE_DAYS=${REFRESH_TOKEN_EXPIRE_DAYS}
+LOG_LEVEL=${LOG_LEVEL}
+EOF
+
+# ── product-service ───────────────────────────────────────────────────────────
+cat > "$APP_DIR/product-service/.env" <<EOF
+DATABASE_URL=postgresql+asyncpg://${PG_USER}:${PG_PASS_ENCODED}@${PG_HOST}:${PG_PORT}/productdb?ssl=require
+JWT_SECRET=${JWT_SECRET}
+JWT_ALGORITHM=${JWT_ALGORITHM}
+LOG_LEVEL=${LOG_LEVEL}
+EOF
+
+# ── order-service ─────────────────────────────────────────────────────────────
+cat > "$APP_DIR/order-service/.env" <<EOF
+DATABASE_URL=postgresql+asyncpg://${PG_USER}:${PG_PASS_ENCODED}@${PG_HOST}:${PG_PORT}/orderdb?ssl=require
+JWT_SECRET=${JWT_SECRET}
+JWT_ALGORITHM=${JWT_ALGORITHM}
+USER_SERVICE_URL=http://localhost:8001
+PRODUCT_SERVICE_URL=http://localhost:8002
+LOG_LEVEL=${LOG_LEVEL}
+EOF
+
+chown "$APP_USER":"$APP_USER" \
+    "$APP_DIR/user-service/.env" \
+    "$APP_DIR/product-service/.env" \
+    "$APP_DIR/order-service/.env"
+
+ok ".env files written"
+
+# ==============================================================================
+# 6. PYTHON VIRTUAL ENVIRONMENTS + DEPENDENCIES
+# ==============================================================================
+step "Creating Python virtual environments and installing dependencies"
+
+for SVC in user-service product-service order-service; do
+    SVC_DIR="$APP_DIR/$SVC"
+    VENV="$SVC_DIR/.venv"
+
+    echo "  [$SVC]"
+
+    if [ ! -d "$VENV" ]; then
+        sudo -u "$APP_USER" python3.11 -m venv "$VENV"
+    fi
+
+    sudo -u "$APP_USER" "$VENV/bin/pip" install --quiet --upgrade pip
+    sudo -u "$APP_USER" "$VENV/bin/pip" install --quiet -r "$SVC_DIR/requirements.txt"
+    ok "$SVC dependencies installed"
+done
+
+# ==============================================================================
+# 7. ALEMBIC MIGRATIONS
+# ==============================================================================
+# NOTE: alembic/env.py reads DATABASE_URL via pydantic-settings (from .env file
+#       in the service directory). The placeholder URL in alembic.ini is IGNORED
+#       because env.py calls config.set_main_option("sqlalchemy.url", ...) at
+#       runtime. No alembic.ini edit is required.
+# ==============================================================================
+step "Running Alembic migrations"
+
+run_migrations() {
+    local SVC=$1
+    local SVC_DIR="$APP_DIR/$SVC"
+    echo "  [$SVC] alembic upgrade head"
+    # Subshell keeps the `cd` local — parent shell working dir is unaffected
+    (
+        cd "$SVC_DIR"
+        sudo -u "$APP_USER" "$SVC_DIR/.venv/bin/python" -m alembic upgrade head
+    )
+    ok "$SVC migrations applied"
+}
+
+run_migrations "user-service"
+run_migrations "product-service"
+run_migrations "order-service"
+
+# ==============================================================================
+# 8. SEED PRODUCT DATA
+# ==============================================================================
+# seed.py skips automatically if products already exist (checks count > 0).
+# Must be run from inside product-service/ so that `from app.*` imports resolve.
+# ==============================================================================
+step "Seeding product data"
+
+cd "$APP_DIR/product-service"
+if sudo -u "$APP_USER" "$APP_DIR/product-service/.venv/bin/python" seed.py; then
+    ok "Product seed complete"
+else
+    warn "Seed exited non-zero — products may already be seeded (safe to ignore)"
+fi
+
+# ==============================================================================
+# 9. FRONTEND — BUILD
+# ==============================================================================
+step "Building React frontend"
+
+cd "$APP_DIR/frontend-service"
+# npm ci requires package-lock.json which is not committed — use npm install
+sudo -u "$APP_USER" npm install --silent
+# Build with .env.production (VITE_API_URL=/api/v1) so relative API calls
+# work through Azure Application Gateway from any origin
+sudo -u "$APP_USER" npm run build
+ok "Frontend built → $APP_DIR/frontend-service/dist"
+
+# ==============================================================================
+# 10. NGINX — SERVE FRONTEND ON PORT 3000
+# ==============================================================================
+step "Configuring nginx to serve frontend on port 3000"
+
+cat > /etc/nginx/sites-available/sneakerhead <<NGINX
+server {
+    listen 3000;
+    server_name _;
+
+    root ${APP_DIR}/frontend-service/dist;
+    index index.html;
+
+    # React Router — all paths fall back to index.html
+    location / {
+        try_files \$uri \$uri/ /index.html;
+    }
+
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml image/svg+xml;
+}
+NGINX
+
+# Disable default site, enable ours
+rm -f /etc/nginx/sites-enabled/default
+ln -sf /etc/nginx/sites-available/sneakerhead /etc/nginx/sites-enabled/sneakerhead
+nginx -t
+systemctl enable nginx
+systemctl restart nginx
+ok "nginx serving frontend on :3000"
+
+# ==============================================================================
+# 11. SYSTEMD UNITS
+# ==============================================================================
+step "Creating systemd service units"
+
+create_unit() {
+    local NAME=$1     # e.g. sneakerhead-user
+    local SVC_DIR=$2  # e.g. /opt/sneakerhead/user-service
+    local PORT=$3     # e.g. 8001
+
+    cat > "/etc/systemd/system/${NAME}.service" <<UNIT
+[Unit]
+Description=SneakerHead ${NAME}
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=${APP_USER}
+WorkingDirectory=${SVC_DIR}
+EnvironmentFile=${SVC_DIR}/.env
+ExecStart=${SVC_DIR}/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --workers 2
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=${NAME}
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+    ok "Unit created: ${NAME}.service (port ${PORT})"
+}
+
+create_unit "sneakerhead-user"    "$APP_DIR/user-service"    8001
+create_unit "sneakerhead-product" "$APP_DIR/product-service" 8002
+create_unit "sneakerhead-order"   "$APP_DIR/order-service"   8003
+
+# ==============================================================================
+# 12. ENABLE AND START ALL SERVICES
+# ==============================================================================
+step "Enabling and starting all services"
+
+systemctl daemon-reload
+
+# Explicit port map — avoids fragile regex extraction from unit file
+declare -A SVC_PORTS=(
+    [sneakerhead-user]=8001
+    [sneakerhead-product]=8002
+    [sneakerhead-order]=8003
+)
+
+for UNIT in sneakerhead-user sneakerhead-product sneakerhead-order; do
+    systemctl enable "$UNIT"
+    systemctl restart "$UNIT"
+
+    SVC_PORT="${SVC_PORTS[$UNIT]}"
+
+    # Wait up to 40 s for the service to pass its health endpoint
+    HEALTHY=0
+    for attempt in $(seq 1 8); do
+        sleep 5
+        if curl -sf --max-time 3 "http://localhost:${SVC_PORT}/health" > /dev/null 2>&1; then
+            ok "$UNIT is healthy on :${SVC_PORT} (attempt $attempt)"
+            HEALTHY=1
+            break
+        fi
+        warn "$UNIT not ready yet on :${SVC_PORT} — waiting (attempt $attempt/8)"
+    done
+
+    if [ "$HEALTHY" -eq 0 ]; then
+        warn "$UNIT did not pass health check after 40 s — check: journalctl -u $UNIT -n 50"
+    fi
+done
+
+systemctl status sneakerhead-user sneakerhead-product sneakerhead-order --no-pager || true
+
+# ==============================================================================
+# DONE
+# ==============================================================================
+echo ""
+echo "======================================================================"
+echo -e "  ${GREEN}SneakerHead bootstrap complete!${NC}  $(date)"
+echo "======================================================================"
+echo ""
+echo "  Service            Port   Systemd Unit"
+echo "  ─────────────────  ─────  ──────────────────────"
+echo "  Frontend (nginx)   3000   nginx"
+echo "  User Service       8001   sneakerhead-user"
+echo "  Product Service    8002   sneakerhead-product"
+echo "  Order Service      8003   sneakerhead-order"
+echo ""
+echo "  Database  : $PG_HOST"
+echo "  Databases : userdb | productdb | orderdb"
+echo ""
+echo "  Useful commands:"
+echo "    journalctl -u sneakerhead-user    -f   # tail user-service logs"
+echo "    journalctl -u sneakerhead-product -f   # tail product-service logs"
+echo "    journalctl -u sneakerhead-order   -f   # tail order-service logs"
+echo "    systemctl restart sneakerhead-product  # restart a service"
+echo ""
+echo "  Bootstrap log: $LOG_FILE"
+echo "======================================================================"
+
+    warn "User '$APP_USER' already exists — skipping"
+else
+    # Regular (non-system) user so npm/pip caches in HOME work without issues
+    useradd --shell /bin/bash --create-home "$APP_USER"
+    ok "User '$APP_USER' created"
+fi
+
+# ==============================================================================
+# 3. CLONE / VERIFY REPO
+# ==============================================================================
+step "Preparing application directory at $APP_DIR"
+
+if [ -d "$APP_DIR/.git" ]; then
+    warn "Repo already exists at $APP_DIR — skipping clone"
+elif [ -n "$REPO_URL" ]; then
+    git clone "$REPO_URL" "$APP_DIR"
+    ok "Cloned $REPO_URL → $APP_DIR"
+else
+    # Assume code was uploaded / already copied to APP_DIR
+    [ -d "$APP_DIR/product-service" ] || \
+        die "APP_DIR=$APP_DIR does not look like the SneakerHead repo. Set REPO_URL or copy the code first."
+    ok "Using existing code at $APP_DIR"
+fi
+
+chown -R "$APP_USER":"$APP_USER" "$APP_DIR"
+
+# ==============================================================================
+# 4. CREATE DATABASES ON AZURE POSTGRESQL
+# ==============================================================================
+step "Creating databases on Azure PostgreSQL ($PG_HOST)"
+
+# Use a temporary Python venv so we don't pollute system Python
+TMP_VENV="/tmp/sneaker_bootstrap_venv"
+python3.11 -m venv "$TMP_VENV"
+"$TMP_VENV/bin/pip" install --quiet asyncpg
+
+"$TMP_VENV/bin/python" - <<PYEOF
+import asyncio, asyncpg
+
+async def main():
+    conn = await asyncpg.connect(
+        host="${PG_HOST}", port=${PG_PORT},
+        user="${PG_USER}", password="${PG_PASS}",
         database="postgres"
     )
     for db in ("userdb", "productdb", "orderdb"):
