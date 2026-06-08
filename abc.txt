@@ -1,0 +1,7 @@
+**Problem Statement:**
+
+Patients often struggle to interpret medical reports, prescriptions, and health data to make informed dietary decisions. Existing diet recommendations are often generic, fail to consider individual medical conditions, allergies, and health history, and require significant manual effort from healthcare professionals. As a result, patients lack personalized, data-driven nutritional guidance and an effective way to monitor their health progress over time.
+
+**Solution:**
+
+NutriAI Health Portal addresses the challenge of personalized nutrition management by automatically analyzing medical reports and prescriptions, extracting relevant health information, and generating AI-powered diet recommendations tailored to each patient's medical conditions, allergies, and health goals. The platform also enables continuous health tracking and monitoring, helping patients make informed dietary decisions and improve long-term health outcomes.
